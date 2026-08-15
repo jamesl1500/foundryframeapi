@@ -1,0 +1,33 @@
+{
+  "family": "ff-siteaudit-api-migrate",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::574247905173:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "574247905173.dkr.ecr.us-east-2.amazonaws.com/ff-siteaudit-api:latest",
+      "essential": true,
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:us-east-2:574247905173:secret:ff-siteaudit/api-Bu8DIE:DATABASE_URL::" },
+        { "name": "JWT_SECRET", "valueFrom": "arn:aws:secretsmanager:us-east-2:574247905173:secret:ff-siteaudit/api-Bu8DIE:JWT_SECRET::" },
+        { "name": "ANTHROPIC_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-2:574247905173:secret:ff-siteaudit/api-Bu8DIE:ANTHROPIC_API_KEY::" },
+        { "name": "PAGESPEED_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-2:574247905173:secret:ff-siteaudit/api-Bu8DIE:PAGESPEED_API_KEY::" }
+      ],
+      "environment": [
+        { "name": "ENVIRONMENT", "value": "production" },
+        { "name": "AWS_REGION", "value": "us-east-2" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ff-siteaudit-api",
+          "awslogs-region": "us-east-2",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

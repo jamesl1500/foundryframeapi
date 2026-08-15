@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: audit
+      POSTGRES_PASSWORD: audit
+      POSTGRES_DB: audit
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  api:
+    build: ./apps/api
+    env_file: ./apps/api/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://audit:audit@db:5432/audit
+    ports: ["8000:8000"]
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
