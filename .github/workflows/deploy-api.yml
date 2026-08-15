@@ -44,12 +44,19 @@ jobs:
 
       - name: Run database migrations
         run: |
+          MIGRATE_TASK_DEF=$(jq --arg img "${{ steps.build.outputs.image }}" \
+            '.containerDefinitions[0].image = $img' infra/task-definition-migrate.json)
+          MIGRATE_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$MIGRATE_TASK_DEF" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "Registered migrate task def: $MIGRATE_TASK_DEF_ARN"
+
           TASK_ARN=$(aws ecs run-task \
             --cluster ${{ env.ECS_CLUSTER }} \
             --launch-type FARGATE \
-            --task-definition ff-siteaudit-api-migrate \
+            --task-definition "$MIGRATE_TASK_DEF_ARN" \
             --network-configuration "awsvpcConfiguration={subnets=[subnet-0b19ca63b84718dd9],securityGroups=[sg-0618161aaa31e2c77],assignPublicIp=ENABLED}" \
-            --overrides "{\"containerOverrides\":[{\"name\":\"${{ env.CONTAINER_NAME }}\",\"command\":[\"alembic\",\"upgrade\",\"head\"],\"image\":\"${{ steps.build.outputs.image }}\"}]}" \
+            --overrides "{\"containerOverrides\":[{\"name\":\"${{ env.CONTAINER_NAME }}\",\"command\":[\"alembic\",\"upgrade\",\"head\"]}]}" \
             --query 'tasks[0].taskArn' --output text)
           echo "Migration task: $TASK_ARN"
           aws ecs wait tasks-stopped --cluster ${{ env.ECS_CLUSTER }} --tasks "$TASK_ARN"
