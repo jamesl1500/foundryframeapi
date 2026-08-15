@@ -1,0 +1,75 @@
+name: deploy-api
+
+on:
+  push:
+    branches: [master]
+    paths: ["apps/api/**", ".github/workflows/deploy-api.yml", "infra/task-definition-api.json"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC -> AWS
+  contents: read
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REPOSITORY: ff-siteaudit-api
+  ECS_CLUSTER: ff-siteaudit-cluster
+  ECS_SERVICE: ff-siteaudit-api
+  CONTAINER_NAME: api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::574247905173:role/gha-deploy-ff-siteaudit-api
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr-login
+
+      - name: Build and push image
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+          docker build -t "$IMAGE" -t "$REGISTRY/${{ env.ECR_REPOSITORY }}:latest" ./apps/api
+          docker push "$IMAGE"
+          docker push "$REGISTRY/${{ env.ECR_REPOSITORY }}:latest"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Run database migrations
+        run: |
+          TASK_ARN=$(aws ecs run-task \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --launch-type FARGATE \
+            --task-definition ff-siteaudit-api-migrate \
+            --network-configuration "awsvpcConfiguration={subnets=[subnet-0b19ca63b84718dd9],securityGroups=[sg-0618161aaa31e2c77],assignPublicIp=ENABLED}" \
+            --overrides "{\"containerOverrides\":[{\"name\":\"${{ env.CONTAINER_NAME }}\",\"command\":[\"alembic\",\"upgrade\",\"head\"],\"image\":\"${{ steps.build.outputs.image }}\"}]}" \
+            --query 'tasks[0].taskArn' --output text)
+          echo "Migration task: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster ${{ env.ECS_CLUSTER }} --tasks "$TASK_ARN"
+          EXIT_CODE=$(aws ecs describe-tasks --cluster ${{ env.ECS_CLUSTER }} --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          echo "Migration exit code: $EXIT_CODE"
+          [ "$EXIT_CODE" = "0" ]
+
+      - name: Render new task definition
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: infra/task-definition-api.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true
