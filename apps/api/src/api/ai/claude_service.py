@@ -2,6 +2,7 @@
 summary plus a recommended service package.
 """
 import json
+import re
 
 from anthropic import AsyncAnthropic
 
@@ -11,6 +12,13 @@ from api.services.audit_service import AuditReport
 settings = get_api_settings()
 
 _client: AsyncAnthropic | None = None
+
+_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
+
+
+def _strip_code_fence(text: str) -> str:
+    """Claude sometimes wraps JSON in a ```json ... ``` fence despite instructions not to."""
+    return _CODE_FENCE_RE.sub("", text.strip()).strip()
 
 
 def _get_client() -> AsyncAnthropic:
@@ -53,7 +61,7 @@ async def generate_recommendations(report: AuditReport, url: str) -> dict:
     text = "".join(block.text for block in message.content if block.type == "text")
 
     try:
-        return json.loads(text)
+        return json.loads(_strip_code_fence(text))
     except json.JSONDecodeError:
         return {
             "summary": text.strip(),
